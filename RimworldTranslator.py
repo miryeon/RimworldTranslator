@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 import threading
 import queue
+import re
 
 def read_mod_files(mod_directory):
     # 모든 xml 파일을 찾기
@@ -29,9 +30,16 @@ def translate_text(texts, src_language, target_language):
     # 텍스트 번역
     translator = Translator()
     translated_texts = []
+    placeholder_pattern = re.compile(r"\{.*?\}")
+
     for text in texts:
+        placeholders = placeholder_pattern.findall(text)
+        temp_text = placeholder_pattern.sub("PLACEHOLDER", text)
+
         try:
-            translated_text = translator.translate(text, src=src_language, dest=target_language).text
+            translated_text = translator.translate(temp_text, src=src_language, dest=target_language).text
+            for placeholder in placeholders:
+                translated_text = translated_text.replace("PLACEHOLDER", placeholder, 1)
             translated_texts.append(translated_text)
         except Exception as e:
             # 번역 실패 시 원본 텍스트 사용
