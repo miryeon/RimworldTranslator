@@ -7,6 +7,7 @@ from googletrans import Translator, LANGUAGES
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 from colorama import init, Fore
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 init(autoreset=True)
 
@@ -23,10 +24,10 @@ def translate_text(text, src_lang, dest_lang):
         translated = translator.translate(text, src=src_lang, dest=dest_lang).text
         return escape_xml_characters(translated)
     except Exception as e:
-        log(f"번역 오류: {str(e)}", error=True)
+        write_log(f"번역 오류: {str(e)}", error=True)
         return text
 
-def log(message, error=False, success=False):
+def write_log(message, error=False, success=False):
     if error:
         log_queue.put(Fore.RED + message)
     elif success:
@@ -35,34 +36,34 @@ def log(message, error=False, success=False):
         log_queue.put(message)
 
 def translate_file(file_path, src_lang, dest_lang):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        content = file.read()
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
 
-    translated_content = re.sub(r'>(.*?)<', 
-                                lambda m: f">{translate_text(m.group(1), src_lang, dest_lang)}<", 
-                                content)
+        translated_content = re.sub(r'>(.*?)<', 
+                                    lambda m: f">{translate_text(m.group(1), src_lang, dest_lang)}<", 
+                                    content)
 
-    with open(file_path, 'w', encoding='utf-8') as file:
-        file.write(translated_content)
+        with open(file_path, 'w', encoding='utf-8') as file:
+            file.write(translated_content)
 
-    log(f"{file_path} 번역 완료", success=True)
+        write_log(f"{file_path} 번역 완료", success=True)
+    except Exception as e:
+        write_log(f"파일 번역 중 오류 발생: {e}", error=True)
 
 def translate_directory(directory, src_lang, dest_lang):
-    threads = []
+    futures = []
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if file.endswith(".xml"):
+                    file_path = os.path.join(root, file)
+                    futures.append(executor.submit(translate_file, file_path, src_lang, dest_lang))
 
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file.endswith(".xml"):
-                file_path = os.path.join(root, file)
-                thread = threading.Thread(target=translate_file, args=(file_path, src_lang, dest_lang))
-                threads.append(thread)
-                thread.start()
-                time.sleep(0.1)
+        for future in as_completed(futures):
+            future.result()  # This will raise any exceptions caught in the threads
 
-    for thread in threads:
-        thread.join()
-
-    log("모든 번역이 완료되었습니다.", success=True)
+    write_log("모든 번역이 완료되었습니다.", success=True)
 
 def update_log(log_queue, log_widget):
     while True:
@@ -87,11 +88,21 @@ def translation_thread(mod_directory, src_language, target_language, log_queue):
 def start_translation():
     mod_directory = directory_var.get()
     if not mod_directory:
-        log("Please select a mod directory.", error=True)
+        write_log("Please select a mod directory.", error=True)
         return
 
-    src_language = [code for code, name in LANGUAGES.items() if name == src_language_var.get()][0]
-    target_language = [code for code, name in LANGUAGES.items() if name == target_language_var.get()][0]
+    src_language_name = src_language_var.get()
+    target_language_name = target_language_var.get()
+
+    src_language = [code for code, name in LANGUAGES.items() if name == src_language_name]
+    target_language = [code for code, name in LANGUAGES.items() if name == target_language_name]
+
+    if not src_language or not target_language:
+        write_log("Invalid source or target language selected.", error=True)
+        return
+
+    src_language = src_language[0]
+    target_language = target_language[0]
 
     threading.Thread(target=translation_thread, args=(mod_directory, src_language, target_language, log_queue)).start()
 
@@ -145,11 +156,11 @@ start_button.grid(row=4, column=0, columnspan=3, pady=20)
 
 log_label = ttk.Label(frame, text="Log:", style="TLabel")
 log_label.grid(row=5, column=0, sticky=tk.W, pady=5, padx=5)
-log = scrolledtext.ScrolledText(frame, width=80, height=15, state=tk.DISABLED, font=('Helvetica', 10), bg="#333333", fg="#ffffff")
-log.grid(row=6, column=0, columnspan=3, pady=5, sticky=tk.EW)
+log_widget = scrolledtext.ScrolledText(frame, width=80, height=15, state=tk.DISABLED, font=('Helvetica', 10), bg="#333333", fg="#ffffff")
+log_widget.grid(row=6, column=0, columnspan=3, pady=5, sticky=tk.EW)
 
 log_queue = queue.Queue()
-threading.Thread(target=update_log, args=(log_queue, log), daemon=True).start()
+threading.Thread(target=update_log, args=(log_queue, log_widget), daemon=True).start()
 
 frame.columnconfigure(1, weight=1)
 frame.columnconfigure(2, weight=1)
