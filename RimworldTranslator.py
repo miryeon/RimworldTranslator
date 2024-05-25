@@ -52,9 +52,16 @@ def translate_file(file_path, src_lang, dest_lang, file_index, total_files):
 
         for line_index, line in enumerate(lines):
             write_log(f"파일 {file_index + 1}/{total_files} - {file_path} 번역 중... ({line_index + 1}/{len(lines)})")
-            translated_line = re.sub(r'>(.*?)<', 
-                                     lambda m: f">{translate_text(m.group(1), src_lang, dest_lang)}<", 
-                                     line)
+            
+            def translation_replacer(match):
+                before, text, after = match.groups()
+                if '->' in text or '<-' in text:
+                    return f"{before}{text}{after}"
+                else:
+                    translated = translate_text(text, src_lang, dest_lang)
+                    return f"{before}{translated}{after}"
+
+            translated_line = re.sub(r'(>)(.*?)(<)', translation_replacer, line)
             translated_lines.append(translated_line)
 
         translated_content = '\n'.join(translated_lines)
@@ -65,6 +72,7 @@ def translate_file(file_path, src_lang, dest_lang, file_index, total_files):
         write_log(f"{file_path} 번역 완료", success=True)
     except Exception as e:
         write_log(f"파일 번역 중 오류 발생: {e}", error=True)
+
 
 def translate_directory(directory, src_lang, dest_lang):
     futures = []
