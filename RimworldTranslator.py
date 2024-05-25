@@ -11,6 +11,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 init(autoreset=True)
 
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # seconds
+
 def escape_xml_characters(text):
     return (text.replace("&", "&amp;")
                 .replace("<", "&lt;")
@@ -18,14 +21,18 @@ def escape_xml_characters(text):
                 .replace("'", "&apos;")
                 .replace('"', "&quot;"))
 
-def translate_text(text, src_lang, dest_lang):
+def translate_text(text, src_lang, dest_lang, retry_count=0):
     translator = Translator()
     try:
         translated = translator.translate(text, src=src_lang, dest=dest_lang).text
         return escape_xml_characters(translated)
     except Exception as e:
-        write_log(f"번역 오류: {str(e)}", error=True)
-        return text
+        if retry_count < MAX_RETRIES:
+            time.sleep(RETRY_DELAY)
+            return translate_text(text, src_lang, dest_lang, retry_count + 1)
+        else:
+            write_log(f"번역 오류: {str(e)}", error=True)
+            return text
 
 def write_log(message, error=False, success=False):
     if error:
@@ -35,14 +42,22 @@ def write_log(message, error=False, success=False):
     else:
         log_queue.put(message)
 
-def translate_file(file_path, src_lang, dest_lang):
+def translate_file(file_path, src_lang, dest_lang, file_index, total_files):
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
             content = file.read()
 
-        translated_content = re.sub(r'>(.*?)<', 
-                                    lambda m: f">{translate_text(m.group(1), src_lang, dest_lang)}<", 
-                                    content)
+        lines = content.split('\n')
+        translated_lines = []
+
+        for line_index, line in enumerate(lines):
+            write_log(f"파일 {file_index + 1}/{total_files} - {file_path} 번역 중... ({line_index + 1}/{len(lines)})")
+            translated_line = re.sub(r'>(.*?)<', 
+                                     lambda m: f">{translate_text(m.group(1), src_lang, dest_lang)}<", 
+                                     line)
+            translated_lines.append(translated_line)
+
+        translated_content = '\n'.join(translated_lines)
 
         with open(file_path, 'w', encoding='utf-8') as file:
             file.write(translated_content)
@@ -53,12 +68,16 @@ def translate_file(file_path, src_lang, dest_lang):
 
 def translate_directory(directory, src_lang, dest_lang):
     futures = []
+    total_files = sum([len(files) for r, d, files in os.walk(directory) if any(f.endswith(".xml") for f in files)])
+
     with ThreadPoolExecutor(max_workers=10) as executor:
+        file_index = 0
         for root, _, files in os.walk(directory):
             for file in files:
                 if file.endswith(".xml"):
                     file_path = os.path.join(root, file)
-                    futures.append(executor.submit(translate_file, file_path, src_lang, dest_lang))
+                    futures.append(executor.submit(translate_file, file_path, src_lang, dest_lang, file_index, total_files))
+                    file_index += 1
 
         for future in as_completed(futures):
             future.result()  # This will raise any exceptions caught in the threads
@@ -134,14 +153,14 @@ src_language_label.grid(row=1, column=0, sticky=tk.E, pady=5, padx=5)
 src_language_var = tk.StringVar()
 src_language_menu = ttk.Combobox(frame, textvariable=src_language_var, values=list(LANGUAGES.values()), state='readonly')
 src_language_menu.grid(row=1, column=1, sticky=tk.W, pady=5, padx=5)
-src_language_menu.set("English")
+src_language_menu.set("english")
 
 target_language_label = ttk.Label(frame, text="Target Language:", style="TLabel")
 target_language_label.grid(row=2, column=0, sticky=tk.E, pady=5, padx=5)
 target_language_var = tk.StringVar()
 target_language_menu = ttk.Combobox(frame, textvariable=target_language_var, values=list(LANGUAGES.values()), state='readonly')
 target_language_menu.grid(row=2, column=1, sticky=tk.W, pady=5, padx=5)
-target_language_menu.set("Korean")
+target_language_menu.set("korean")
 
 directory_label = ttk.Label(frame, text="Mod Directory:", style="TLabel")
 directory_label.grid(row=3, column=0, sticky=tk.E, pady=5, padx=5)
