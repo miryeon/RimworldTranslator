@@ -82,7 +82,7 @@ def translate_file(file_path, src_lang, dest_lang, file_index, total_files):
 
         for tag in tags:
             before, text, after = tag
-            write_log(f"파일 {file_index + 1}/{total_files} - {file_path} 태그 번역 중... ({tag_index + 1}/{len(tags)})")
+            write_log(f"파일 {file_index + 1}/{total_files} - {file_path} 태그 번역 중... ")
 
             if '->' in text:
                 left, right = text.split('->', 1)
