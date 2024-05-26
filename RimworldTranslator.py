@@ -43,6 +43,27 @@ def translate_text(text, src_lang, dest_lang, retry_count=0):
             write_log(f"번역 오류: {str(e)}", error=True)
             return text
 
+def find_translation_targets(directory):
+    translation_targets = []
+
+    # 'DefInjected', 'Keyed' 폴더 탐색
+    for root, dirs, files in os.walk(directory):
+        for folder in ['DefInjected', 'Keyed']:
+            if folder in dirs:
+                folder_path = os.path.join(root, folder)
+                for sub_root, _, sub_files in os.walk(folder_path):
+                    # 'AlienRace.ThingDef_AlienRace' 및 'RulePackDef' 폴더 제외
+                    if 'AlienRace.ThingDef_AlienRace' in sub_root or 'RulePackDef' in sub_root :
+                        continue
+                    for file in sub_files:
+                        if file.endswith('.xml'):
+                            translation_targets.append(os.path.join(sub_root, file))
+
+    return translation_targets
+
+
+
+
 def write_log(message, error=False, success=False):
     if error:
         log_queue.put(Fore.RED + message)
@@ -56,49 +77,44 @@ def translate_file(file_path, src_lang, dest_lang, file_index, total_files):
         with open(file_path, 'r', encoding='utf-8') as file:
             content = file.read()
 
-        lines = content.split('\n')
-        translated_lines = []
+        tags = re.findall(r'(<[^>]+>)([^<]+)(</[^>]+>)', content)
+        translated_content = content
 
-        for line_index, line in enumerate(lines):
-            write_log(f"파일 {file_index + 1}/{total_files} - {file_path} 번역 중... ({line_index + 1}/{len(lines)})")
+        for tag in tags:
+            before, text, after = tag
+            write_log(f"파일 {file_index + 1}/{total_files} - {file_path} 태그 번역 중... ({tag_index + 1}/{len(tags)})")
 
-            def translation_replacer(match):
-                before, text, after = match.groups()
-                if '->' in text or '<-' in text:
-                    return f"{before}{text}{after}"
-                else:
-                    translated = translate_text(text, src_lang, dest_lang)
-                    return f"{before}{translated}{after}"
-
-            translated_line = re.sub(r'(>)(.*?)(<)', translation_replacer, line)
-            translated_lines.append(translated_line)
-
-        translated_content = '\n'.join(translated_lines)
+            if '->' in text:
+                left, right = text.split('->', 1)
+                translated_text = f"{left}->{translate_text(right.strip(), src_lang, dest_lang)}"
+            else:
+                translated_text = translate_text(text, src_lang, dest_lang)
+                
+            translated_content = translated_content.replace(f"{before}{text}{after}", f"{before}{translated_text}{after}", 1)
 
         with open(file_path, 'w', encoding='utf-8') as file:
             file.write(translated_content)
 
         write_log(f"{file_path} 번역 완료", success=True)
     except Exception as e:
-        write_log(f"파일 번역 중 오류 발생 ({file_path} - {line_index + 1}): {e}", error=True)
+        write_log(f"파일 번역 중 오류 발생 ({file_path}): {e}", error=True)
+
 
 def translate_directory(directory, src_lang, dest_lang):
     futures = []
-    total_files = sum([len(files) for r, d, files in os.walk(directory) if any(f.endswith(".xml") for f in files)])
+    translation_targets = find_translation_targets(directory)
+    total_files = len(translation_targets)
 
     with ThreadPoolExecutor(max_workers=10) as executor:
-        file_index = 0
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if file.endswith(".xml"):
-                    file_path = os.path.join(root, file)
-                    futures.append(executor.submit(translate_file, file_path, src_lang, dest_lang, file_index, total_files))
-                    file_index += 1
+        for file_index, file_path in enumerate(translation_targets):
+            futures.append(executor.submit(translate_file, file_path, src_lang, dest_lang, file_index, total_files))
 
         for future in as_completed(futures):
             future.result()  # This will raise any exceptions caught in the threads
 
     write_log("모든 번역이 완료되었습니다.", success=True)
+
+
 
 def update_log(log_queue, log_widget):
     while True:
