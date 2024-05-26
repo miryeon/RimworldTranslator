@@ -24,8 +24,17 @@ def escape_xml_characters(text):
 def translate_text(text, src_lang, dest_lang, retry_count=0):
     translator = Translator()
     try:
-        translated = translator.translate(text, src=src_lang, dest=dest_lang).text
-        return escape_xml_characters(translated)
+        placeholder_pattern = re.compile(r'\[.*?\]')
+        placeholders = placeholder_pattern.findall(text)
+        clean_text = placeholder_pattern.sub('{}', text)
+
+        translated = translator.translate(clean_text, src=src_lang, dest=dest_lang).text
+        translated_escaped = escape_xml_characters(translated)
+
+        for placeholder in placeholders:
+            translated_escaped = translated_escaped.replace('{}', placeholder, 1)
+
+        return translated_escaped
     except Exception as e:
         if retry_count < MAX_RETRIES:
             time.sleep(RETRY_DELAY)
@@ -52,7 +61,7 @@ def translate_file(file_path, src_lang, dest_lang, file_index, total_files):
 
         for line_index, line in enumerate(lines):
             write_log(f"파일 {file_index + 1}/{total_files} - {file_path} 번역 중... ({line_index + 1}/{len(lines)})")
-            
+
             def translation_replacer(match):
                 before, text, after = match.groups()
                 if '->' in text or '<-' in text:
@@ -71,8 +80,7 @@ def translate_file(file_path, src_lang, dest_lang, file_index, total_files):
 
         write_log(f"{file_path} 번역 완료", success=True)
     except Exception as e:
-        write_log(f"파일 번역 중 오류 발생: {e}", error=True)
-
+        write_log(f"파일 번역 중 오류 발생 ({file_path} - {line_index + 1}): {e}", error=True)
 
 def translate_directory(directory, src_lang, dest_lang):
     futures = []
@@ -136,6 +144,11 @@ def start_translation():
 def browse_directory():
     directory = filedialog.askdirectory()
     directory_var.set(directory)
+
+def create_ui_element(widget_type, parent, **options):
+    widget = widget_type(parent, **options)
+    widget.grid(options.pop('grid', {}))
+    return widget
 
 root = tk.Tk()
 root.title("RimWorld Mod Translator")
