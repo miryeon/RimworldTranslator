@@ -122,7 +122,7 @@ def update_log(log_queue, log_widget):
     while True:
         message = log_queue.get()
         if message == "DONE":
-            break
+            continue
         log_widget.config(state=tk.NORMAL)
         log_widget.insert(tk.END, message + '\n')
         log_widget.config(state=tk.DISABLED)
